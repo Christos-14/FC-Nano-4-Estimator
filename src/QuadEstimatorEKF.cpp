@@ -101,6 +101,9 @@ void QuadEstimatorEKF::UpdateFromIMU(V3F accel, V3F gyro)
   //if (ekfState(6) > F_PI) ekfState(6) -= 2.f*F_PI;
   //if (ekfState(6) < -F_PI) ekfState(6) += 2.f*F_PI;
 
+  // Implementation based on section 7.1.2 of Estimation for Quadrotors (thereafter, EfQ)
+  // https://www.overleaf.com/read/vymfngphcccj
+
   // We use the state to define a quaternion qt, for the Euler angles phi, theta and psi.
   Quaternion<float> qt = Quaternion<float>::FromEuler123_RPY(rollEst, pitchEst, ekfState(6));
 
@@ -173,6 +176,22 @@ VectorXf QuadEstimatorEKF::PredictState(VectorXf curState, float dt, V3F accel, 
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  // Implementing EfQ equation (49)
+
+  // Position x, y, z
+  predictedState[0] += predictedState[3] * dt;
+  predictedState[1] += predictedState[4] * dt;
+  predictedState[2] += predictedState[5] * dt;
+  
+  // Compute inertial frame accelerations
+  V3F accel_IF = attitude.Rotate_BtoI(accel);
+
+  // Velocity x_dot, y_dot, z_dot
+  predictedState[3] += accel_IF[0] * dt;
+  predictedState[4] += accel_IF[1] * dt;
+  predictedState[5] += (accel_IF[2] - CONST_GRAVITY) * dt;
+  
+  // Yaw psi - Done in the IMU update!
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -200,6 +219,15 @@ MatrixXf QuadEstimatorEKF::GetRbgPrime(float roll, float pitch, float yaw)
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  // Rbg prime - based on EfQ equation (52)
+  RbgPrime(0, 0) = -cos(pitch) * sin(yaw);
+  RbgPrime(1, 0) = cos(pitch) * cos(yaw);
+
+  RbgPrime(0, 1) = -sin(roll) * sin(pitch) * sin(yaw) - cos(roll) * cos(yaw);
+  RbgPrime(1, 1) = sin(roll) * sin(pitch) * cos(yaw) - cos(roll) * sin(yaw);
+
+  RbgPrime(0, 2) = -cos(roll) * sin(pitch) * sin(yaw) + sin(roll) * cos(yaw);
+  RbgPrime(1, 2) = cos(roll) * sin(pitch) * cos(yaw) + sin(roll) * sin(yaw);
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -246,6 +274,17 @@ void QuadEstimatorEKF::Predict(float dt, V3F accel, V3F gyro)
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  // Gt = g_prime_t calculated as per EfQ equation (51)
+  gPrime(0, 3) = dt;
+  gPrime(1, 3) = dt;
+  gPrime(2, 5) = dt; 
+  gPrime(3, 6) = (RbgPrime(0, 0) * accel[0] + RbgPrime(0, 1) * accel[1] + RbgPrime(0, 2) * accel[2]) * dt;
+  gPrime(4, 6) = (RbgPrime(1, 0) * accel[0] + RbgPrime(1, 1) * accel[1] + RbgPrime(1, 2) * accel[2]) * dt;
+  gPrime(5, 6) = (RbgPrime(2, 0) * accel[0] + RbgPrime(2, 1) * accel[1] + RbgPrime(2, 2) * accel[2]) * dt;
+
+  // Predicted covariance calculated as per line 4 of EfQ Algorithm (2) (EKF - PREDICT())
+  MatrixXf gPrimeT = gPrime.transpose();
+  ekfCov = gPrime * ekfCov * gPrimeT + Q;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
